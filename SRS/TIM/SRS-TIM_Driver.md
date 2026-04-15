@@ -3,7 +3,7 @@
 
 # Software Requirements Specification (SRS)  
 **Module:** Timer (TIM) Driver  
-**Version:** 1.0  
+**Version:** 1.1  
 **Author:** Carlos Villarreal
 
 ---
@@ -29,7 +29,7 @@ The TIM driver will be integrated into embedded firmware to manage hardware time
 ### 1.4 References  
 - Recommended Practice for Software Requirements Specifications: [IEEE Std 830-1998](https://ieeexplore.ieee.org/document/720574)
 - Microcontroller datasheet: [STM32F411RE](../../Documents/stm32f411re.pdf)
-- Microcontoller reference manual: [RM0383-STM32F411xC/E](../../Documents/rm0383-stm32f411xce.pdf)
+- Microcontroller reference manual: [RM0383-STM32F411xC/E](../../Documents/rm0383-stm32f411xce.pdf)
 
 ---
 
