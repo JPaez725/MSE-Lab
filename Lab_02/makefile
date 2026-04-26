@@ -1,15 +1,15 @@
 ## makefile
 ## ---------------------------------------------------------------------------
-## Build script – STM32 Nucleo-F411RE, bare-metal C con CMSIS.
+## Build script – STM32 Nucleo-F411RE, bare-metal C with CMSIS.
 ##
-##   make build   → compila y enlaza   → build/app.elf
-##   make flash   → programa vía OpenOCD
-##   make clean   → elimina objetos y ELF
+##   make build   → compiles and links   → build/app.elf
+##   make flash   → program via OpenOCD
+##   make clean   → deletes objects and ELF
 ## ---------------------------------------------------------------------------
 
 include sources.mk
 
-## ── Salida ──────────────────────────────────────────────────────────────────
+## ── Output ──────────────────────────────────────────────────────────────────
 EXEC = build/app.elf
 OBJS = $(SRC:.c=.o)
 
@@ -30,7 +30,7 @@ LDFLAGS = -nostdlib -T $(LINKER_FILE)
 
 CC = arm-none-eabi-gcc
 
-## ── Reglas ──────────────────────────────────────────────────────────────────
+## ── Rules ──────────────────────────────────────────────────────────────────
 %.o : %.c
 	$(CC) -c $< $(CFLAGS) $(INCLUDES) -o $@
 
