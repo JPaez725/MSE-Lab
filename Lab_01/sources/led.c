@@ -1,13 +1,13 @@
 /**
  ******************************************************************************
  * @file    led.c
- * @brief   Control de LD2 (PA5) en la Nucleo-F411RE usando registros CMSIS.
+ * @brief   Control of LD2 (PA5) on Nucleo-F411RE using CMSIS registers.
  *
- * Accesos directos al hardware (sin abstracción intermedia):
- *   RCC->AHB1ENR  |= RCC_AHB1ENR_GPIOAEN;   habilita clock GPIOA
- *   GPIOA->MODER  → configura PA5 como salida (MODER=01)
- *   GPIOA->BSRR   → set/reset atómico (preferido sobre ODR para set/clear)
- *   GPIOA->ODR    → toggle vía XOR
+ * Direct hardware access (no intermediate abstraction):
+ *   RCC->AHB1ENR  |= RCC_AHB1ENR_GPIOAEN;   enables GPIOA clock
+ *   GPIOA->MODER  → configures PA5 as output (MODER=01)
+ *   GPIOA->BSRR   → atomic set/reset (preferred over ODR for set/clear)
+ *   GPIOA->ODR    → toggle via XOR
  ******************************************************************************
  */
 
@@ -18,13 +18,13 @@
 
 void led_init(void)
 {
-    /* Habilitar clock del bus AHB1 para GPIOA */
+    /* Enable AHB1 bus clock for GPIOA */
     RCC->AHB1ENR |= RCC_AHB1ENR_GPIOAEN;
 
-    /* PA5 → modo salida de propósito general (MODER[11:10] = 01b)
-     * Paso 1: borrar los 2 bits del campo para evitar glitch al escribir */
+    /* PA5 → general purpose output mode (MODER[11:10] = 01b)
+     * Step 1: clear the 2 bits of the field to avoid glitch when writing */
     GPIOA->MODER &= ~(3UL << (LED_PIN * 2U));
-    /* Paso 2: escribir 01b (output) */
+    /* Step 2: write 01b (output) */
     GPIOA->MODER |=  (1UL << (LED_PIN * 2U));
 }
 
@@ -42,6 +42,6 @@ void led_off(void)
 
 void led_toggle(void)
 {
-    /* XOR: invierte solo el bit del LED */
+    /* XOR: toggles only the LED bit */
     GPIOA->ODR ^= (1UL << LED_PIN);
 }
