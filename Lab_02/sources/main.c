@@ -16,16 +16,16 @@
 #include "pwm.h"
 
 #define PWM_FREQ_HZ     (1000U)   /* 1 kHz PWM carrier   */
-#define FADE_STEP_MS    (10U)     /* 10 ms per duty step  */
-#define BLINK_MS        (500U)    /* LED half-period      */
+#define FADE_STEP_MS    (10U)      /* 10 ms per duty step */
+#define BLINK_MS        (500U)    /* LED half-period     */
 
 int main(void)
 {
     /* Initialise peripherals */
-    led_init();                   /* PA5 → output                    */
-    timer_init();                 /* TIM5 clock enable                */
-    pwm_init(PWM_FREQ_HZ);        /* TIM2 CH1 → PA0, AF1, 1 kHz      */
-    pwm_start();                  /* Start counter + enable CH1 output */
+    led_init();                   /* PA5 → output                       */
+    timer_init();                 /* TIM5 clock enable                  */
+    pwm_init(PWM_FREQ_HZ);        /* TIM2 CH1 → PA0, AF1, 1 kHz         */
+    pwm_start();                  /* Start counter + enable CH1 output  */
 
     while (1)
     {

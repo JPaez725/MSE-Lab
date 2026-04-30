@@ -27,8 +27,7 @@ GPIO_Status_t gpio_init(GPIO_TypeDef *port, uint8_t pin, GPIO_Mode_t mode)
 }
 
 /* ── gpio_set_output_type ────────────────────────────────────────── */
-GPIO_Status_t gpio_set_output_type(GPIO_TypeDef *port, uint8_t pin,
-                                   GPIO_OType_t otype)
+GPIO_Status_t gpio_set_output_type(GPIO_TypeDef *port, uint8_t pin, GPIO_OType_t otype)
 {
     if ((port == NULL) || (pin > 15U)) { return GPIO_ERROR; }
     port->OTYPER &= ~(0x1U << pin);
@@ -37,8 +36,7 @@ GPIO_Status_t gpio_set_output_type(GPIO_TypeDef *port, uint8_t pin,
 }
 
 /* ── gpio_set_speed ──────────────────────────────────────────────── */
-GPIO_Status_t gpio_set_speed(GPIO_TypeDef *port, uint8_t pin,
-                              GPIO_Speed_t speed)
+GPIO_Status_t gpio_set_speed(GPIO_TypeDef *port, uint8_t pin, GPIO_Speed_t speed)
 {
     if ((port == NULL) || (pin > 15U)) { return GPIO_ERROR; }
     port->OSPEEDR &= ~(0x3U << (pin * 2U));
@@ -47,8 +45,7 @@ GPIO_Status_t gpio_set_speed(GPIO_TypeDef *port, uint8_t pin,
 }
 
 /* ── gpio_set_pupd ───────────────────────────────────────────────── */
-GPIO_Status_t gpio_set_pupd(GPIO_TypeDef *port, uint8_t pin,
-                             GPIO_PUPD_t pupd)
+GPIO_Status_t gpio_set_pupd(GPIO_TypeDef *port, uint8_t pin, GPIO_PUPD_t pupd)
 {
     if ((port == NULL) || (pin > 15U)) { return GPIO_ERROR; }
     port->PUPDR &= ~(0x3U << (pin * 2U));
