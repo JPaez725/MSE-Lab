@@ -16,7 +16,7 @@
 #include "pwm.h"
 
 #define PWM_FREQ_HZ     (1000U)   /* 1 kHz PWM carrier   */
-#define FADE_STEP_MS    (10U)      /* 10 ms per duty step */
+#define FADE_STEP_MS    (100U)     /* 10 ms per duty step */
 #define BLINK_MS        (500U)    /* LED half-period     */
 
 int main(void)
@@ -30,21 +30,21 @@ int main(void)
     while (1)
     {
         /* ── Fade up PA0 (0 → 100 %) ──────────────────────────── */
-        for (uint8_t duty = 0U; duty <= 100U; duty++)
+        for (uint8_t duty = 0U; duty <= 100U; duty += 10U)
         {
             pwm_set_signal(duty);
             timer_delay_ms(FADE_STEP_MS);
         }
-
+        led_toggle();  /* Toggle PA5 once per fade up (every ~1 s) */
         /*── Fade down PA0 (100 → 0 %) ────────────────────────── */ 
-        for (uint8_t duty = 100U; duty > 0U; duty--)
+        for (uint8_t duty = 100U; duty > 0U; duty -= 10U)
         {
             pwm_set_signal(duty);
             timer_delay_ms(FADE_STEP_MS);
         }
         pwm_set_signal(0U);
 
-        /* ── Toggle PA5 once per full fade cycle (~2 s) ───────── */
+        /* ── Toggle PA5 once per fade down (~1 s) ───────── */
         led_toggle();
     }
 
