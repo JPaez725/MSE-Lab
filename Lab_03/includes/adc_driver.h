@@ -2,24 +2,29 @@
  * @file    adc_driver.h
  * @brief   Low-level ADC driver for STM32F4xx (CMSIS / bare-metal).
  *
- * Covers SRS FR-1 through FR-9:
- *   FR-1  adc_init                    – clock enable, default state
- *   FR-2  adc_enable                  – ADON bit
- *   FR-3  adc_set_channel             – regular sequence channel
- *   FR-4  adc_set_injected_channel    – injected sequence channel
- *   FR-5  adc_start_single            – one-shot SWSTART
- *   FR-6  adc_start_continuous        – CONT mode
- *   FR-7  adc_start_injected          – JSWSTART
- *   FR-8  adc_read_data               – DR register (regular)
- *   FR-9  adc_read_injected_data      – JDR1–JDR4 (injected)
+ * Supports:
+ *  - ADC1 single-channel, single-conversion, polling mode
+ *  - 12 / 10 / 8 / 6-bit resolution (CR1.RES)
+ *  - Right / left data alignment (CR2.ALIGN)
+ *  - Programmable sample time per channel (SMPRx)
+ *  - Software-triggered conversion start (CR2.SWSTART)
+ *  - End-of-conversion polling via SR.EOC
+ *  - Overrun detection via SR.OVR
+ *  - Error handling for NULL pointers and invalid channel numbers
  *
- * Hardware assumptions:
- *   - STM32F411RE, ADC1 only (single ADC device on this MCU)
- *   - 12-bit resolution (default, CR1.RES = 00)
- *   - Right-aligned data (CR2.ALIGN = 0)
- *   - Software trigger for regular and injected conversions
- *   - Single channel, single regular sequence (SQR1.L = 0)
- *   - ADC clock = PCLK2 / 4 = 16 MHz / 4 = 4 MHz (within spec)
+ * Peripheral clock must be enabled BEFORE calling adc_init().
+ * (The higher-level sensor module handles this.)
+ *
+ * SRS compliance:
+ *   FR-1  Register-level access (ADC_TypeDef from CMSIS)
+ *   FR-2  adc_init()          – configure resolution, channel, sample time
+ *   FR-3  adc_set_channel()   – select channel in SQR3 and configure SMPRx
+ *   FR-4  adc_enable()        – set CR2.ADON and wait for stabilisation
+ *   FR-5  adc_disable()       – clear CR2.ADON
+ *   FR-6  adc_start()         – trigger conversion via CR2.SWSTART
+ *   FR-7  adc_poll_eoc()      – wait for SR.EOC with timeout
+ *   FR-8  adc_read()          – read DR and return 16-bit result
+ *   FR-9  Error codes         – ADC_Status_t returned by every function
  */
 
 #ifndef ADC_DRIVER_H
@@ -27,121 +32,160 @@
 
 #include "stm32f411xe.h"
 #include <stdint.h>
-#include <stddef.h>
+#include <stddef.h>   /* NULL */
 
 /* ====================================================================
  * Constants
  * ==================================================================== */
 
-/** @brief Maximum valid regular/injected channel number on STM32F411. */
+/** @brief ADC stabilisation delay after ADON (minimum ~3 µs at 16 MHz). */
+#define ADC_STAB_DELAY_CYCLES   (48U)
+
+/** @brief Default poll timeout (loop iterations before giving up). */
+#define ADC_TIMEOUT_CYCLES      (100000U)
+
+/** @brief Maximum valid channel number for ADC1 on STM32F411RE. */
 #define ADC_MAX_CHANNEL         (18U)
-
-/** @brief Maximum injected channel rank (1–4). */
-#define ADC_MAX_INJECTED_RANK   (4U)
-
-/** @brief Full-scale value for 12-bit resolution. */
-#define ADC_FULL_SCALE          (4095U)
 
 /* ====================================================================
  * Enumerations
  * ==================================================================== */
 
-typedef enum { ADC_OK = 0U, ADC_ERROR = 1U } ADC_Status_t;
-
-/** @brief Sample time options (written to SMPRx, 3 bits per channel). */
+/** @brief Conversion resolution (CR1.RES, 2 bits). */
 typedef enum
 {
-    ADC_SAMPLETIME_3   = 0U,
-    ADC_SAMPLETIME_15  = 1U,
-    ADC_SAMPLETIME_28  = 2U,
-    ADC_SAMPLETIME_56  = 3U,
-    ADC_SAMPLETIME_84  = 4U,
-    ADC_SAMPLETIME_112 = 5U,
-    ADC_SAMPLETIME_144 = 6U,
-    ADC_SAMPLETIME_480 = 7U
+    ADC_RES_12BIT = 0x00U,  /**< 12-bit: 0–4095  */
+    ADC_RES_10BIT = 0x01U,  /**< 10-bit: 0–1023  */
+    ADC_RES_8BIT  = 0x02U,  /**< 8-bit:  0–255   */
+    ADC_RES_6BIT  = 0x03U   /**< 6-bit:  0–63    */
+} ADC_Resolution_t;
+
+/** @brief Data alignment (CR2.ALIGN). */
+typedef enum
+{
+    ADC_ALIGN_RIGHT = 0x00U, /**< Right-aligned (default)  */
+    ADC_ALIGN_LEFT  = 0x01U  /**< Left-aligned             */
+} ADC_Align_t;
+
+/**
+ * @brief  Sample time selection (SMPRx, 3 bits per channel).
+ *         Longer sample time → better accuracy for high-impedance sources.
+ */
+typedef enum
+{
+    ADC_SMP_3_CYCLES   = 0x00U,
+    ADC_SMP_15_CYCLES  = 0x01U,
+    ADC_SMP_28_CYCLES  = 0x02U,
+    ADC_SMP_56_CYCLES  = 0x03U,
+    ADC_SMP_84_CYCLES  = 0x04U,
+    ADC_SMP_112_CYCLES = 0x05U,
+    ADC_SMP_144_CYCLES = 0x06U,
+    ADC_SMP_480_CYCLES = 0x07U
 } ADC_SampleTime_t;
 
+/**
+ * @brief  Driver return status (FR-9 – error handling).
+ *         Every public function returns one of these codes.
+ */
+typedef enum
+{
+    ADC_OK             = 0U, /**< Operation completed successfully     */
+    ADC_ERROR_NULL     = 1U, /**< NULL pointer passed as argument      */
+    ADC_ERROR_CHANNEL  = 2U, /**< Channel number out of range (> 18)   */
+    ADC_ERROR_TIMEOUT  = 3U, /**< EOC did not assert within timeout    */
+    ADC_ERROR_OVERRUN  = 4U  /**< SR.OVR set – data was overwritten    */
+} ADC_Status_t;
+
 /* ====================================================================
- * Public API  (FR-1 … FR-9)
+ * Configuration Structure (FR-2)
  * ==================================================================== */
 
 /**
- * FR-1 – Initialise the ADC subsystem.
- *
- * Steps:
- *  1. Enable ADC1 clock on APB2.
- *  2. Set ADC common prescaler to /4 (CCR.ADCPRE = 01).
- *  3. Configure CR1: 12-bit resolution (RES = 00), scan mode off.
- *  4. Configure CR2: right-align, software trigger (SWSTART/JSWSTART),
- *     single conversion mode (CONT = 0).
- *  5. Set regular sequence length to 1 (SQR1.L = 0).
- *
- * @param  adc  ADC peripheral pointer (e.g. ADC1).
+ * @brief  Complete ADC configuration passed to adc_init().
  */
-ADC_Status_t adc_init(ADC_TypeDef *adc);
+typedef struct
+{
+    ADC_Resolution_t resolution;  /**< Conversion resolution              */
+    ADC_Align_t      align;       /**< Data alignment in DR               */
+    uint8_t          channel;     /**< ADC input channel 0–18             */
+    ADC_SampleTime_t sampleTime;  /**< Sample-time for the channel        */
+} ADC_Config_t;
+
+/* ====================================================================
+ * Public API
+ * ==================================================================== */
 
 /**
- * FR-2 – Enable the ADC (set CR2.ADON).
- *        Requires a stabilisation delay before the first conversion;
- *        the caller is responsible for waiting (~1 µs / a few NOPs).
+ * @brief  Initialise the ADC peripheral with the given configuration.
+ *         Sets CR1 (resolution), CR2 (alignment, single conversion),
+ *         then calls adc_set_channel() to configure SQR3 and SMPRx.
+ *         Does NOT enable the ADC; call adc_enable() afterwards.
+ *
+ * @param  adc     ADC peripheral pointer (ADC1).
+ * @param  config  Pointer to the configuration structure.
+ * @return ADC_OK, ADC_ERROR_NULL, or ADC_ERROR_CHANNEL.
+ */
+ADC_Status_t adc_init(ADC_TypeDef *adc, const ADC_Config_t *config);
+
+/**
+ * @brief  Select the input channel for the next conversion (FR-3).
+ *         Writes channel number into SQR3[4:0] (sequence length = 1)
+ *         and programs the sample time in SMPR1 (ch 10–18) or
+ *         SMPR2 (ch 0–9).
+ *
+ * @param  adc      ADC peripheral pointer.
+ * @param  channel  Channel 0–18.
+ * @param  smp      Sample time selection.
+ * @return ADC_OK, ADC_ERROR_NULL, or ADC_ERROR_CHANNEL.
+ */
+ADC_Status_t adc_set_channel(ADC_TypeDef *adc, uint8_t channel,ADC_SampleTime_t smp);
+
+/**
+ * @brief  Enable the ADC (set CR2.ADON) and wait for stabilisation (FR-4).
+ *         A short busy-wait loop ensures the ADC is ready before the
+ *         first conversion is triggered.
+ *
+ * @param  adc  ADC peripheral pointer.
+ * @return ADC_OK or ADC_ERROR_NULL.
  */
 ADC_Status_t adc_enable(ADC_TypeDef *adc);
 
 /**
- * FR-3 – Configure the first slot of the regular conversion sequence.
+ * @brief  Disable the ADC (clear CR2.ADON) (FR-5).
  *
- * @param  channel      Channel number 0–18.
- * @param  sample_time  Sample time selection (ADC_SAMPLETIME_x).
+ * @param  adc  ADC peripheral pointer.
+ * @return ADC_OK or ADC_ERROR_NULL.
  */
-ADC_Status_t adc_set_channel(ADC_TypeDef *adc, uint8_t channel,
-                              ADC_SampleTime_t sample_time);
+ADC_Status_t adc_disable(ADC_TypeDef *adc);
 
 /**
- * FR-4 – Configure an injected channel slot.
+ * @brief  Trigger a software-start conversion (FR-6).
+ *         Sets CR2.SWSTART; hardware clears it automatically when the
+ *         conversion begins.
  *
- * @param  channel      Channel number 0–18.
- * @param  rank         Injected rank 1–4.
- * @param  sample_time  Sample time selection.
+ * @param  adc  ADC peripheral pointer.
+ * @return ADC_OK or ADC_ERROR_NULL.
  */
-ADC_Status_t adc_set_injected_channel(ADC_TypeDef *adc, uint8_t channel,
-                                      uint8_t rank,
-                                      ADC_SampleTime_t sample_time);
+ADC_Status_t adc_start(ADC_TypeDef *adc);
 
 /**
- * FR-5 – Start a single regular conversion (CR2.SWSTART = 1).
- *         Clears EOC before starting so the caller can poll it cleanly.
- */
-ADC_Status_t adc_start_single(ADC_TypeDef *adc);
-
-/**
- * FR-6 – Start continuous regular conversions (CR2.CONT = 1, then SWSTART).
- *         Conversions repeat until adc_stop_continuous() disables CONT.
- */
-ADC_Status_t adc_start_continuous(ADC_TypeDef *adc);
-
-/** @brief Stop continuous mode (clear CR2.CONT and CR2.ADON). */
-ADC_Status_t adc_stop_continuous(ADC_TypeDef *adc);
-
-/**
- * FR-7 – Start an injected conversion (CR2.JSWSTART = 1).
- */
-ADC_Status_t adc_start_injected(ADC_TypeDef *adc);
-
-/**
- * FR-8 – Read the regular conversion result from DR.
- *         Polls EOC (blocking) then returns the 12-bit value.
+ * @brief  Poll SR.EOC until conversion completes or timeout (FR-7).
+ *         Also checks SR.OVR on each iteration.
  *
- * @return 12-bit ADC result (0–4095).
+ * @param  adc      ADC peripheral pointer.
+ * @param  timeout  Maximum loop iterations to wait.
+ * @return ADC_OK, ADC_ERROR_NULL, ADC_ERROR_TIMEOUT, or ADC_ERROR_OVERRUN.
  */
-uint16_t adc_read_data(ADC_TypeDef *adc);
+ADC_Status_t adc_poll_eoc(ADC_TypeDef *adc, uint32_t timeout);
 
 /**
- * FR-9 – Read the result of an injected channel from JDR1–JDR4.
- *         Polls JEOC (blocking) then returns the result for @p rank.
+ * @brief  Read the 16-bit result from DR (FR-8).
+ *         Reading DR also clears SR.EOC automatically (hardware behaviour).
  *
- * @param  rank  Injected rank 1–4.
- * @return 12-bit ADC result (0–4095), or 0 on invalid rank.
+ * @param  adc     ADC peripheral pointer.
+ * @param  result  Output pointer; receives the raw ADC value.
+ * @return ADC_OK or ADC_ERROR_NULL.
  */
-uint16_t adc_read_injected_data(ADC_TypeDef *adc, uint8_t rank);
+ADC_Status_t adc_read(ADC_TypeDef *adc, uint16_t *result);
 
 #endif /* ADC_DRIVER_H */

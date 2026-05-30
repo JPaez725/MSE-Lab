@@ -1,17 +1,20 @@
 /**
  * @file    sensor.h
- * @brief   Analog sensor module – potentiometer on PA1 (ADC1_IN1).
+ * @brief   Analog Sensor module – potentiometer on PA1 (ADC1 CH1).
  *
  * Hardware mapping (fixed):
- *   Pin    : PA1  →  Analog mode (no AF needed for ADC)
- *   ADC    : ADC1, Channel 1
- *   Result : 12-bit (0–4095), right-aligned
+ *   ADC     : ADC1
+ *   Channel : CH1  →  PA1  (no alternate function needed for analog)
+ *   Pin     : PA1  →  configured as GPIO_MODE_ANALOG
+ *   Clock   : 16 MHz HSI  →  ADCCLK = 8 MHz (prescaler /2 in ADC_CCR)
+ *
+ * This module wraps the ADC driver to provide a simple three-function
+ * interface: initialise, start, read.
  *
  * Usage:
  *   sensor_init();
  *   sensor_start_conversion();
- *   uint16_t raw = sensor_read_value();   // 0–4095
- *   uint8_t  pct = sensor_to_percent(raw); // 0–100
+ *   uint16_t raw = sensor_read_value();   // 0–4095 (12-bit)
  */
 
 #ifndef SENSOR_H
@@ -19,23 +22,29 @@
 
 #include <stdint.h>
 
-/** @brief Initialise PA1 as analog input and configure ADC1 channel 1. */
-void     sensor_init(void);
-
-/** @brief Trigger a single ADC conversion (non-blocking start). */
-void     sensor_start_conversion(void);
+/**
+ * @brief  Initialise the sensor: enable ADC1 clock, configure PA1 as
+ *         analog input (no pull), set up ADC1 CH1 with 12-bit resolution
+ *         and 84-cycle sample time, then power on the ADC.
+ *
+ *         Must be called once at startup before any other sensor function.
+ */
+void sensor_init(void);
 
 /**
- * @brief  Read the last conversion result (blocks until EOC).
- * @return Raw 12-bit ADC value (0–4095).
+ * @brief  Trigger a single ADC conversion on CH1 (software start).
+ *         Call sensor_read_value() afterwards to retrieve the result.
+ */
+void sensor_start_conversion(void);
+
+/**
+ * @brief  Poll for end-of-conversion and return the raw 12-bit result.
+ *
+ *         Blocks until the conversion completes or a timeout expires.
+ *         If a timeout or overrun occurs the function returns 0.
+ *
+ * @return Raw ADC value in the range 0–4095.
  */
 uint16_t sensor_read_value(void);
-
-/**
- * @brief  Map a raw 12-bit ADC value to a 0–100 % percentage.
- *         Formula: percent = raw * 100 / 4095
- * @return Duty cycle percentage 0–100.
- */
-uint8_t  sensor_to_percent(uint16_t raw);
 
 #endif /* SENSOR_H */
